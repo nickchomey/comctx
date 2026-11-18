@@ -299,7 +299,21 @@ const createProvide = <T extends Record<string, any>>(target: T, adapter: DebugA
           namespace: options.namespace,
           timeStamp: Date.now()
         }
-        adapter.sendMessage(responseMessage, [])
+        try {
+          await adapter.sendMessage(responseMessage, [])
+        } catch (sendError) {
+          const reason = sendError instanceof Error ? `${sendError.name}: ${sendError.message}` : String(sendError)
+          const fallbackMessage: Message = {
+            ...responseMessage,
+            data: undefined,
+            error: reason
+          }
+          try {
+            await adapter.sendMessage(fallbackMessage, [])
+          } catch {
+            // The fallback carries only cloneable data. If it still fails, the transport itself is broken.
+          }
+        }
         break
       }
     }

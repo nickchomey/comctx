@@ -712,4 +712,42 @@ describe('defineProxy', () => {
       debugSpy.mockRestore()
     }
   })
+
+  test('should reject the call when the provider response cannot be cloned', async () => {
+    const eventHub = new EventHub()
+
+    const providerAdapter: Adapter = {
+      sendMessage: (message) => {
+        // Mirror postMessage semantics: an uncloneable payload throws instead of being delivered.
+        structuredClone(message)
+        eventHub.emit('provider-to-injector', message)
+      },
+      onMessage: (callback) => {
+        eventHub.on('injector-to-provider', callback)
+        return () => eventHub.off('injector-to-provider', callback)
+      }
+    }
+
+    const injectorAdapter: Adapter = {
+      sendMessage: (message) => eventHub.emit('injector-to-provider', message),
+      onMessage: (callback) => {
+        eventHub.on('provider-to-injector', callback)
+        return () => eventHub.off('provider-to-injector', callback)
+      }
+    }
+
+    const [provide, inject] = defineProxy(
+      () => ({
+        ok: () => ({ id: '1', type: 'doc' }),
+        bad: () => ({ id: '1', type: 'doc', handle: () => 'live' })
+      }),
+      { heartbeatCheck: false }
+    )
+
+    provide(providerAdapter)
+    const proxy = inject(injectorAdapter)
+
+    await expect(proxy.ok()).resolves.toEqual({ id: '1', type: 'doc' })
+    await expect(proxy.bad()).rejects.toThrow('could not be cloned')
+  })
 })
